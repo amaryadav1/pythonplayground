@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pyodide Python IDE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .toolbar {
+            background: #2d2d30;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-bottom: 1px solid #3e3e42;
+        }
+        .toolbar input {
+            padding: 6px 12px;
+            border: 1px solid #3e3e42;
+            background: #3c3c3c;
+            color: #d4d4d4;
+            border-radius: 3px;
+            flex: 1;
+            max-width: 300px;
+        }
+        .toolbar button {
+            padding: 6px 16px;
+            border: none;
+            background: #0e639c;
+            color: white;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .toolbar button:hover {
+            background: #1177bb;
+        }
+        .toolbar button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        .toolbar .run-btn {
+            background: #16825d;
+        }
+        .toolbar .run-btn:hover {
+            background: #1e9e6d;
+        }
+        .status {
+            padding: 4px 12px;
+            background: #007acc;
+            color: white;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #editor {
+            height: 60%;
+            border-bottom: 1px solid #3e3e42;
+            background: #1e1e1e;
+            padding: 10px;
+            overflow: auto;
+        }
+        #codeArea {
+            width: 100%;
+            height: 100%;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: none;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+            tab-size: 4;
+        }
+        .terminal {
+            height: 40%;
+            background: #1e1e1e;
+            padding: 10px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .terminal-line {
+            margin-bottom: 4px;
+        }
+        .terminal-error {
+            color: #f48771;
+        }
+        .terminal-success {
+            color: #4ec9b0;
+        }
+        .terminal-info {
+            color: #608b4e;
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <input type="text" id="packageInput" placeholder="Enter package name (e.g., numpy, pandas, requests)" />
+        <button id="installBtn">Install Package</button>
+        <button id="runBtn" class="run-btn">▶ Run Code</button>
+        <div class="status" id="status">Initializing Pyodide...</div>
+    </div>
+    
+    <div class="container">
+        <div id="editor">
+            <textarea id="codeArea" spellcheck="false"># Python IDE with Pyodide
+# Install packages using the input box above (e.g., numpy, pandas, matplotlib)
+
+import sys
+print("Python version:", sys.version)
+print("Welcome to Pyodide!")
+
+# Example: Basic operations
+numbers = [1, 2, 3, 4, 5]
+squared = [x**2 for x in numbers]
+print(f"Original: {numbers}")
+print(f"Squared: {squared}")
+</textarea>
+        </div>
+        <div class="terminal" id="terminal"></div>
+    </div>
+
+    <script type="module">
+        let pyodide = null;
+
+        // Terminal functions
+        function writeToTerminal(text, type = 'normal') {
+            const terminal = document.getElementById('terminal');
+            const line = document.createElement('div');
+            line.className = `terminal-line ${type === 'error' ? 'terminal-error' : type === 'success' ? 'terminal-success' : type === 'info' ? 'terminal-info' : ''}`;
+            line.textContent = text;
+            terminal.appendChild(line);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function clearTerminal() {
+            document.getElementById('terminal').innerHTML = '';
+        }
+
+        function updateStatus(text, color = '#007acc') {
+            const status = document.getElementById('status');
+            status.textContent = text;
+            status.style.background = color;
+        }
+
+        // Initialize Pyodide
+        async function initPyodide() {
+            try {
+                writeToTerminal('Loading Pyodide...', 'info');
+                
+                // Load Pyodide
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js';
+                document.head.appendChild(script);
+                
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = reject;
+                });
+                
+                pyodide = await loadPyodide({
+                    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/"
+                });
+                
+                // Load micropip for PyPI package installation
+                writeToTerminal('Loading micropip...', 'info');
+                await pyodide.loadPackage('micropip');
+                
+                // Redirect Python stdout and stderr
+                pyodide.runPython(`
+                    import sys
+                    import io
+                    sys.stdout = io.StringIO()
+                    sys.stderr = io.StringIO()
+                `);
+                
+                writeToTerminal('Pyodide loaded successfully!', 'success');
+                updateStatus('Ready', '#16825d');
+                document.getElementById('installBtn').disabled = false;
+                document.getElementById('runBtn').disabled = false;
+            } catch (err) {
+                writeToTerminal(`Failed to load Pyodide: ${err.message}`, 'error');
+                updateStatus('Error', '#e51400');
+            }
+        }
+
+        // Install package
+        async function installPackage() {
+            const packageName = document.getElementById('packageInput').value.trim();
+            if (!packageName) {
+                writeToTerminal('Please enter a package name', 'error');
+                return;
+            }
+
+            try {
+                document.getElementById('installBtn').disabled = true;
+                updateStatus(`Installing ${packageName}...`, '#f9a825');
+                writeToTerminal(`Installing package: ${packageName}`, 'info');
+                
+                // First try Pyodide built-in packages
+                try {
+                    await pyodide.loadPackage(packageName);
+                    writeToTerminal(`✓ Package '${packageName}' installed from Pyodide`, 'success');
+                } catch (pyodideErr) {
+                    // If not available in Pyodide, try PyPI with micropip
+                    writeToTerminal(`Not found in Pyodide, trying PyPI...`, 'info');
+                    await pyodide.runPythonAsync(`
+                        import micropip
+                        await micropip.install('${packageName}')
+                    `);
+                    writeToTerminal(`✓ Package '${packageName}' installed from PyPI`, 'success');
+                }
+                
+                updateStatus('Ready', '#16825d');
+                document.getElementById('packageInput').value = '';
+            } catch (err) {
+                writeToTerminal(`✗ Failed to install '${packageName}': ${err.message}`, 'error');
+                writeToTerminal(`Tip: Make sure the package has a pure Python wheel on PyPI`, 'info');
+                updateStatus('Ready', '#16825d');
+            } finally {
+                document.getElementById('installBtn').disabled = false;
+            }
+        }
+
+        // Run Python code
+        async function runCode() {
+            const code = document.getElementById('codeArea').value;
+            if (!code.trim()) {
+                writeToTerminal('No code to run', 'error');
+                return;
+            }
+
+            clearTerminal();
+            writeToTerminal('>>> Running code...', 'info');
+            
+            try {
+                document.getElementById('runBtn').disabled = true;
+                updateStatus('Running...', '#f9a825');
+                
+                // Clear previous output
+                pyodide.runPython(`
+                    import sys
+                    sys.stdout.truncate(0)
+                    sys.stdout.seek(0)
+                    sys.stderr.truncate(0)
+                    sys.stderr.seek(0)
+                `);
+                
+                // Run the code
+                await pyodide.runPythonAsync(code);
+                
+                // Get stdout
+                const stdout = pyodide.runPython('sys.stdout.getvalue()');
+                if (stdout) {
+                    stdout.split('\n').forEach(line => {
+                        if (line) writeToTerminal(line);
+                    });
+                }
+                
+                // Get stderr
+                const stderr = pyodide.runPython('sys.stderr.getvalue()');
+                if (stderr) {
+                    stderr.split('\n').forEach(line => {
+                        if (line) writeToTerminal(line, 'error');
+                    });
+                }
+                
+                if (!stdout && !stderr) {
+                    writeToTerminal('(No output)', 'info');
+                }
+                
+                writeToTerminal('>>> Execution completed', 'success');
+                updateStatus('Ready', '#16825d');
+            } catch (err) {
+                writeToTerminal(`Error: ${err.message}`, 'error');
+                updateStatus('Ready', '#16825d');
+            } finally {
+                document.getElementById('runBtn').disabled = false;
+            }
+        }
+
+        // Handle tab key in textarea
+        document.getElementById('codeArea').addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = e.target.selectionStart;
+                const end = e.target.selectionEnd;
+                const value = e.target.value;
+                e.target.value = value.substring(0, start) + '    ' + value.substring(end);
+                e.target.selectionStart = e.target.selectionEnd = start + 4;
+            }
+        });
+
+        // Event listeners
+        document.getElementById('installBtn').addEventListener('click', installPackage);
+        document.getElementById('runBtn').addEventListener('click', runCode);
+        document.getElementById('packageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') installPackage();
+        });
+
+        // Keyboard shortcut for run (Ctrl+Enter or Cmd+Enter)
+        window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                runCode();
+            }
+        });
+
+        // Disable buttons until Pyodide is ready
+        document.getElementById('installBtn').disabled = true;
+        document.getElementById('runBtn').disabled = true;
+
+        // Initialize
+        initPyodide();
+    </script>
+</body>
+</html>
